@@ -11,6 +11,35 @@ export const useAuth = () => {
   return context;
 };
 
+// Save or update user profile in Supabase
+const saveUserProfile = async (user) => {
+  if (!user) return;
+
+  const { id, email, user_metadata } = user;
+  const fullName = user_metadata?.full_name || user_metadata?.name || '';
+  const avatarUrl = user_metadata?.avatar_url || user_metadata?.picture || '';
+
+  try {
+    const { error } = await supabase
+      .from('profiles')
+      .upsert({
+        id: id,
+        email: email,
+        full_name: fullName,
+        avatar_url: avatarUrl,
+        updated_at: new Date().toISOString()
+      }, {
+        onConflict: 'id'
+      });
+
+    if (error) {
+      console.error('Error saving user profile:', error);
+    }
+  } catch (err) {
+    console.error('Error saving user profile:', err);
+  }
+};
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -19,7 +48,11 @@ export const AuthProvider = ({ children }) => {
     // Get initial session
     const getSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
-      setUser(session?.user ?? null);
+      const currentUser = session?.user ?? null;
+      setUser(currentUser);
+      if (currentUser) {
+        saveUserProfile(currentUser);
+      }
       setLoading(false);
     };
 
@@ -28,7 +61,13 @@ export const AuthProvider = ({ children }) => {
     // Listen for auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        setUser(session?.user ?? null);
+        const currentUser = session?.user ?? null;
+        setUser(currentUser);
+
+        // Save profile on sign in
+        if (event === 'SIGNED_IN' && currentUser) {
+          saveUserProfile(currentUser);
+        }
         setLoading(false);
       }
     );
