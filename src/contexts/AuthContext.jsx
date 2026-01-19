@@ -85,6 +85,16 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const signInWithFacebook = async () => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'facebook',
+    });
+    if (error) {
+      console.error('Error signing in with Facebook:', error);
+      throw error;
+    }
+  };
+
   const signOut = async () => {
     try {
       const { error } = await supabase.auth.signOut({ scope: 'local' });
@@ -105,6 +115,7 @@ export const AuthProvider = ({ children }) => {
     user,
     loading,
     signInWithGoogle,
+    signInWithFacebook,
     signOut,
   };
 
