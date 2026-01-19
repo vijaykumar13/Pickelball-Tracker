@@ -392,7 +392,7 @@ export default function PickleballTracker() {
               <>
                 <span className="text-slate-400 text-sm font-sans">{user.email}</span>
                 <button
-                  onClick={signOut}
+                  onClick={() => signOut()}
                   className="text-slate-400 hover:text-blue-400 transition-colors flex items-center gap-1 text-sm font-sans"
                 >
                   <LogOut size={16} />
