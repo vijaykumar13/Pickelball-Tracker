@@ -20,6 +20,7 @@ export default function PickleballTracker() {
   const [searchQuery, setSearchQuery] = useState('');
   const [draggedPlayer, setDraggedPlayer] = useState(null);
   const [draggedFromPosition, setDraggedFromPosition] = useState(null);
+  const [showToast, setShowToast] = useState(false);
 
   const playerNameInputRef = React.useRef(null);
 
@@ -281,6 +282,10 @@ export default function PickleballTracker() {
       // Update player stats
       const updatedPlayers = calculatePlayerStats([...updatedGames]);
       setPlayers(updatedPlayers);
+
+      // Show toast notification
+      setShowToast(true);
+      setTimeout(() => setShowToast(false), 3000);
     } catch (error) {
       console.error('Error saving game:', error);
       alert('Error saving game. Please try again.');
@@ -1006,6 +1011,13 @@ export default function PickleballTracker() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Toast Notification */}
+      {showToast && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg font-sans text-sm font-medium z-50 animate-fade-in">
+          Game Saved!
         </div>
       )}
     </div>
