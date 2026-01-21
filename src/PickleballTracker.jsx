@@ -4,7 +4,7 @@ import { supabase } from './supabaseClient';
 import { useAuth } from './contexts/AuthContext';
 
 export default function PickleballTracker() {
-  const { user, signOut, signInWithGoogle, signInWithFacebook } = useAuth();
+  const { user, signOut, signInWithGoogle, signInWithFacebook, signInWithEmail, signUp } = useAuth();
   const [view, setView] = useState('court');
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [pendingAction, setPendingAction] = useState(null);
@@ -21,6 +21,10 @@ export default function PickleballTracker() {
   const [draggedPlayer, setDraggedPlayer] = useState(null);
   const [draggedFromPosition, setDraggedFromPosition] = useState(null);
   const [showToast, setShowToast] = useState(false);
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [authError, setAuthError] = useState('');
 
   const playerNameInputRef = React.useRef(null);
 
@@ -962,11 +966,15 @@ export default function PickleballTracker() {
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-3 z-50">
           <div className="bg-slate-950 border border-slate-800 max-w-sm w-full">
             <div className="border-b border-slate-800 px-4 py-3 flex justify-between items-center">
-              <h2 className="text-lg font-light text-blue-400">Sign In Required</h2>
+              <h2 className="text-lg font-light text-blue-400">{isSignUp ? 'Create Account' : 'Sign In'}</h2>
               <button
                 onClick={() => {
                   setShowLoginModal(false);
                   setPendingAction(null);
+                  setLoginEmail('');
+                  setLoginPassword('');
+                  setAuthError('');
+                  setIsSignUp(false);
                 }}
                 className="text-slate-500 hover:text-blue-400 transition-colors"
               >
@@ -976,8 +984,87 @@ export default function PickleballTracker() {
 
             <div className="p-6">
               <p className="text-slate-400 text-sm font-sans mb-6 text-center">
-                Sign in to save your games and players to the cloud.
+                {isSignUp ? 'Create an account to save your games and players.' : 'Sign in to save your games and players to the cloud.'}
               </p>
+
+              {/* Email/Password Form */}
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                setAuthError('');
+                try {
+                  if (isSignUp) {
+                    await signUp(loginEmail, loginPassword);
+                    setAuthError('Check your email for a confirmation link!');
+                  } else {
+                    await signInWithEmail(loginEmail, loginPassword);
+                  }
+                  setLoginEmail('');
+                  setLoginPassword('');
+                } catch (error) {
+                  setAuthError(error.message);
+                }
+              }} className="space-y-3 mb-4">
+                <div>
+                  <label className="text-slate-400 font-sans text-[10px] tracking-wide mb-1.5 flex items-center gap-1.5">
+                    <Mail size={12} />
+                    EMAIL
+                  </label>
+                  <input
+                    type="email"
+                    value={loginEmail}
+                    onChange={(e) => setLoginEmail(e.target.value)}
+                    placeholder="Enter your email"
+                    required
+                    className="w-full bg-slate-900 border border-slate-700 text-white text-sm px-3 py-2 font-sans focus:outline-none focus:border-blue-400 transition-colors placeholder-slate-600"
+                  />
+                </div>
+                <div>
+                  <label className="text-slate-400 font-sans text-[10px] tracking-wide mb-1.5 block">
+                    PASSWORD
+                  </label>
+                  <input
+                    type="password"
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                    placeholder="Enter your password"
+                    required
+                    minLength={6}
+                    className="w-full bg-slate-900 border border-slate-700 text-white text-sm px-3 py-2 font-sans focus:outline-none focus:border-blue-400 transition-colors placeholder-slate-600"
+                  />
+                </div>
+
+                {authError && (
+                  <p className={`text-xs font-sans ${authError.includes('Check your email') ? 'text-green-400' : 'text-red-400'}`}>
+                    {authError}
+                  </p>
+                )}
+
+                <button
+                  type="submit"
+                  className="w-full bg-blue-500 text-white py-2.5 px-4 font-sans text-sm font-medium hover:bg-blue-400 transition-colors border border-blue-600 shadow-lg"
+                >
+                  {isSignUp ? 'Sign Up' : 'Sign In'}
+                </button>
+              </form>
+
+              <button
+                onClick={() => {
+                  setIsSignUp(!isSignUp);
+                  setAuthError('');
+                }}
+                className="w-full text-blue-400 hover:text-blue-300 text-xs font-sans mb-4 transition-colors"
+              >
+                {isSignUp ? 'Already have an account? Sign In' : "Don't have an account? Sign Up"}
+              </button>
+
+              <div className="relative my-4">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-slate-700"></div>
+                </div>
+                <div className="relative flex justify-center text-xs">
+                  <span className="px-2 bg-slate-950 text-slate-500 font-sans">or continue with</span>
+                </div>
+              </div>
 
               <button
                 onClick={signInWithGoogle}
@@ -1001,7 +1088,7 @@ export default function PickleballTracker() {
                     d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
                   />
                 </svg>
-                <span>Sign in with Google</span>
+                <span>Google</span>
               </button>
 
               <button
@@ -1011,7 +1098,7 @@ export default function PickleballTracker() {
                 <svg className="w-5 h-5" viewBox="0 0 24 24" fill="white">
                   <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
                 </svg>
-                <span>Sign in with Facebook</span>
+                <span>Facebook</span>
               </button>
 
               <div className="mt-4 text-center">

@@ -95,6 +95,28 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const signInWithEmail = async (email, password) => {
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+    if (error) {
+      console.error('Error signing in with email:', error);
+      throw error;
+    }
+  };
+
+  const signUp = async (email, password) => {
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+    });
+    if (error) {
+      console.error('Error signing up:', error);
+      throw error;
+    }
+  };
+
   const signOut = async () => {
     try {
       const { error } = await supabase.auth.signOut({ scope: 'local' });
@@ -116,6 +138,8 @@ export const AuthProvider = ({ children }) => {
     loading,
     signInWithGoogle,
     signInWithFacebook,
+    signInWithEmail,
+    signUp,
     signOut,
   };
 
