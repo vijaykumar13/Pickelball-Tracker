@@ -368,7 +368,7 @@ export default function PickleballTracker() {
     const team1 = team1Players.map(p => p.name).join(' & ');
     const team2 = team2Players.map(p => p.name).join(' & ');
 
-    const text = `🏓 Pickleball Match Results\n${team1}: ${game.team1.score}\n${team2}: ${game.team2.score}\n${game.winner === 'team1' ? team1 : team2} wins! 🏆`;
+    const text = `🏓 Pickleball Match Results\n${team1}: ${game.team1.score}\n${team2}: ${game.team2.score}\n${game.winner === 'team1' ? team1 : team2} wins! 🏆\n\n📊 Track your games & climb the leaderboard for FREE!\n👉 https://pickleballtrials.com`;
 
     if (navigator.share) {
       navigator.share({ text });
