@@ -23,6 +23,7 @@ export default function PickleballTracker() {
   const [showToast, setShowToast] = useState(false);
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [loginName, setLoginName] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
   const [authError, setAuthError] = useState('');
 
@@ -973,6 +974,7 @@ export default function PickleballTracker() {
                   setPendingAction(null);
                   setLoginEmail('');
                   setLoginPassword('');
+                  setLoginName('');
                   setAuthError('');
                   setIsSignUp(false);
                 }}
@@ -993,17 +995,34 @@ export default function PickleballTracker() {
                 setAuthError('');
                 try {
                   if (isSignUp) {
-                    await signUp(loginEmail, loginPassword);
+                    await signUp(loginEmail, loginPassword, loginName);
                     setAuthError('Check your email for a confirmation link!');
                   } else {
                     await signInWithEmail(loginEmail, loginPassword);
                   }
                   setLoginEmail('');
                   setLoginPassword('');
+                  setLoginName('');
                 } catch (error) {
                   setAuthError(error.message);
                 }
               }} className="space-y-3 mb-4">
+                {isSignUp && (
+                  <div>
+                    <label className="text-slate-400 font-sans text-[10px] tracking-wide mb-1.5 flex items-center gap-1.5">
+                      <User size={12} />
+                      FULL NAME
+                    </label>
+                    <input
+                      type="text"
+                      value={loginName}
+                      onChange={(e) => setLoginName(e.target.value)}
+                      placeholder="Enter your full name"
+                      required
+                      className="w-full bg-slate-900 border border-slate-700 text-white text-sm px-3 py-2 font-sans focus:outline-none focus:border-blue-400 transition-colors placeholder-slate-600"
+                    />
+                  </div>
+                )}
                 <div>
                   <label className="text-slate-400 font-sans text-[10px] tracking-wide mb-1.5 flex items-center gap-1.5">
                     <Mail size={12} />
@@ -1051,6 +1070,7 @@ export default function PickleballTracker() {
                 onClick={() => {
                   setIsSignUp(!isSignUp);
                   setAuthError('');
+                  setLoginName('');
                 }}
                 className="w-full text-blue-400 hover:text-blue-300 text-xs font-sans mb-4 transition-colors"
               >

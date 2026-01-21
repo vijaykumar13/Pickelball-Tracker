@@ -106,10 +106,15 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const signUp = async (email, password) => {
+  const signUp = async (email, password, name) => {
     const { error } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        data: {
+          full_name: name
+        }
+      }
     });
     if (error) {
       console.error('Error signing up:', error);
