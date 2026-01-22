@@ -3,6 +3,50 @@ import { Trophy, Plus, TrendingUp, Calendar, Share2, X, User, Mail, Search, LogO
 import { supabase } from './supabaseClient';
 import { useAuth } from './contexts/AuthContext';
 
+// localStorage keys and utility functions for offline/anonymous usage
+const STORAGE_KEYS = {
+  LOCAL_PLAYERS: 'pickleball_local_players',
+  LOCAL_GAMES: 'pickleball_local_games',
+  LAST_COURT_POSITIONS: 'pickleball_last_court_positions'
+};
+
+const getLocalPlayers = () => {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEYS.LOCAL_PLAYERS)) || [];
+  } catch { return []; }
+};
+
+const setLocalPlayers = (players) => {
+  localStorage.setItem(STORAGE_KEYS.LOCAL_PLAYERS, JSON.stringify(players));
+};
+
+const getLocalGames = () => {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEYS.LOCAL_GAMES)) || [];
+  } catch { return []; }
+};
+
+const setLocalGames = (games) => {
+  localStorage.setItem(STORAGE_KEYS.LOCAL_GAMES, JSON.stringify(games));
+};
+
+const generateLocalId = () => `local_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+const saveLastCourtPositions = (positions) => {
+  try {
+    localStorage.setItem(STORAGE_KEYS.LAST_COURT_POSITIONS, JSON.stringify(positions));
+  } catch (error) {
+    console.error('Error saving court positions:', error);
+  }
+};
+
+const getLastCourtPositions = () => {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEYS.LAST_COURT_POSITIONS);
+    return stored ? JSON.parse(stored) : null;
+  } catch { return null; }
+};
+
 export default function PickleballTracker() {
   const { user, signOut, signInWithGoogle, signInWithFacebook, signInWithEmail, signUp } = useAuth();
   const [view, setView] = useState('court');
@@ -45,6 +89,80 @@ export default function PickleballTracker() {
     }
   }, [user, pendingAction]);
 
+  // Sync local data to cloud when user logs in
+  const syncLocalDataToCloud = async () => {
+    const localPlayers = getLocalPlayers();
+    const localGames = getLocalGames();
+
+    if (localPlayers.length === 0 && localGames.length === 0) return;
+
+    const playerIdMap = {};
+
+    try {
+      // Sync players first
+      for (const localPlayer of localPlayers) {
+        const { data, error } = await supabase
+          .from('players')
+          .insert([{
+            name: localPlayer.name,
+            email: localPlayer.email
+          }])
+          .select()
+          .single();
+
+        if (!error && data) {
+          playerIdMap[localPlayer.id] = data.id;
+        }
+      }
+
+      // Sync games with mapped player IDs
+      for (const localGame of localGames) {
+        const getPlayerId = (player) => {
+          if (!player) return null;
+          if (player.id?.toString().startsWith('local_')) {
+            return playerIdMap[player.id] || null;
+          }
+          return player.id;
+        };
+
+        await supabase
+          .from('games')
+          .insert([{
+            team1_player1_id: getPlayerId(localGame.team1?.player1),
+            team1_player2_id: getPlayerId(localGame.team1?.player2),
+            team2_player1_id: getPlayerId(localGame.team2?.player1),
+            team2_player2_id: getPlayerId(localGame.team2?.player2),
+            team1_score: localGame.team1?.score,
+            team2_score: localGame.team2?.score,
+            winner: localGame.winner
+          }]);
+      }
+
+      // Clear local storage after successful sync
+      localStorage.removeItem(STORAGE_KEYS.LOCAL_PLAYERS);
+      localStorage.removeItem(STORAGE_KEYS.LOCAL_GAMES);
+
+      // Reload data to get fresh from Supabase
+      await loadData();
+
+      console.log('Local data synced to cloud successfully');
+    } catch (error) {
+      console.error('Error syncing local data:', error);
+    }
+  };
+
+  // Trigger sync when user logs in
+  React.useEffect(() => {
+    if (user) {
+      const localPlayers = getLocalPlayers();
+      const localGames = getLocalGames();
+
+      if (localPlayers.length > 0 || localGames.length > 0) {
+        syncLocalDataToCloud();
+      }
+    }
+  }, [user]);
+
   // Court positions for current game
   const [courtPositions, setCourtPositions] = useState({
     team1Left: null,
@@ -66,6 +184,10 @@ export default function PickleballTracker() {
 
   const loadData = async () => {
     try {
+      // Load local data first (always available)
+      const localPlayers = getLocalPlayers();
+      const localGames = getLocalGames();
+
       // Load players from Supabase
       const { data: playersData, error: playersError } = await supabase
         .from('players')
@@ -73,9 +195,11 @@ export default function PickleballTracker() {
         .order('created_at', { ascending: true });
 
       if (playersError) throw playersError;
-      if (playersData) {
-        setAllPlayers(playersData);
-      }
+
+      // Merge Supabase players with local players
+      const supabasePlayers = playersData || [];
+      const mergedPlayers = [...supabasePlayers, ...localPlayers];
+      setAllPlayers(mergedPlayers);
 
       // Load games from Supabase
       const { data: gamesData, error: gamesError } = await supabase
@@ -84,32 +208,58 @@ export default function PickleballTracker() {
         .order('created_at', { ascending: false });
 
       if (gamesError) throw gamesError;
-      if (gamesData) {
-        // Transform games data to match our format
-        const transformedGames = gamesData.map(game => ({
-          id: game.id,
-          team1: {
-            player1: playersData?.find(p => p.id === game.team1_player1_id) || null,
-            player2: playersData?.find(p => p.id === game.team1_player2_id) || null,
-            score: game.team1_score
-          },
-          team2: {
-            player1: playersData?.find(p => p.id === game.team2_player1_id) || null,
-            player2: playersData?.find(p => p.id === game.team2_player2_id) || null,
-            score: game.team2_score
-          },
-          winner: game.winner,
-          date: game.played_at,
-          timestamp: new Date(game.created_at).getTime()
-        }));
-        setGames(transformedGames);
 
-        // Calculate player stats from games
-        const stats = calculatePlayerStats(transformedGames);
-        setPlayers(stats);
+      // Transform Supabase games data to match our format
+      const supabaseGames = (gamesData || []).map(game => ({
+        id: game.id,
+        team1: {
+          player1: mergedPlayers.find(p => p.id === game.team1_player1_id) || null,
+          player2: mergedPlayers.find(p => p.id === game.team1_player2_id) || null,
+          score: game.team1_score
+        },
+        team2: {
+          player1: mergedPlayers.find(p => p.id === game.team2_player1_id) || null,
+          player2: mergedPlayers.find(p => p.id === game.team2_player2_id) || null,
+          score: game.team2_score
+        },
+        winner: game.winner,
+        date: game.played_at,
+        timestamp: new Date(game.created_at).getTime()
+      }));
+
+      // Merge all games and sort by timestamp (newest first)
+      const allGamesData = [...supabaseGames, ...localGames]
+        .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+      setGames(allGamesData);
+
+      // Calculate player stats from all games
+      const stats = calculatePlayerStats(allGamesData);
+      setPlayers(stats);
+
+      // Restore last court positions
+      const lastPositions = getLastCourtPositions();
+      if (lastPositions) {
+        const resolvePlayer = (storedPlayer) => {
+          if (!storedPlayer) return null;
+          return mergedPlayers.find(p => p.id === storedPlayer.id) || storedPlayer;
+        };
+
+        setCourtPositions({
+          team1Left: resolvePlayer(lastPositions.team1Left),
+          team1Right: resolvePlayer(lastPositions.team1Right),
+          team2Left: resolvePlayer(lastPositions.team2Left),
+          team2Right: resolvePlayer(lastPositions.team2Right)
+        });
       }
     } catch (error) {
       console.error('Error loading data:', error);
+      // Fallback to local data only on error
+      const localPlayers = getLocalPlayers();
+      const localGames = getLocalGames();
+      setAllPlayers(localPlayers);
+      setGames(localGames);
+      setPlayers(calculatePlayerStats(localGames));
     } finally {
       setLoading(false);
     }
@@ -122,19 +272,36 @@ export default function PickleballTracker() {
     }
 
     try {
-      // Insert player into Supabase
-      const { data, error } = await supabase
-        .from('players')
-        .insert([{
+      let player;
+
+      if (user) {
+        // Authenticated: Save to Supabase
+        const { data, error } = await supabase
+          .from('players')
+          .insert([{
+            name: newPlayerName.trim(),
+            email: newPlayerEmail.trim() || null
+          }])
+          .select()
+          .single();
+
+        if (error) throw error;
+        player = data;
+      } else {
+        // Anonymous: Save to localStorage
+        player = {
+          id: generateLocalId(),
           name: newPlayerName.trim(),
-          email: newPlayerEmail.trim() || null
-        }])
-        .select()
-        .single();
+          email: newPlayerEmail.trim() || null,
+          created_at: new Date().toISOString(),
+          isLocal: true
+        };
 
-      if (error) throw error;
+        const localPlayers = getLocalPlayers();
+        localPlayers.push(player);
+        setLocalPlayers(localPlayers);
+      }
 
-      const player = data;
       setAllPlayers([...allPlayers, player]);
 
       setNewPlayerName('');
@@ -157,15 +324,7 @@ export default function PickleballTracker() {
   };
 
   const selectPosition = (position) => {
-    if (!user) {
-      setPendingAction(() => () => {
-        setSelectedPosition(position);
-        setShowPlayerSelect(true);
-        setSearchQuery('');
-      });
-      setShowLoginModal(true);
-      return;
-    }
+    // Allow anonymous usage - no auth check required
     setSelectedPosition(position);
     setShowPlayerSelect(true);
     setSearchQuery('');
@@ -227,12 +386,6 @@ export default function PickleballTracker() {
   );
 
   const saveGame = async () => {
-    if (!user) {
-      setPendingAction(() => saveGame);
-      setShowLoginModal(true);
-      return;
-    }
-
     const team1Score = parseInt(currentScores.team1);
     const team2Score = parseInt(currentScores.team2);
 
@@ -246,40 +399,75 @@ export default function PickleballTracker() {
     }
 
     try {
-      // Insert game into Supabase
-      const { data: gameData, error: gameError } = await supabase
-        .from('games')
-        .insert([{
-          team1_player1_id: courtPositions.team1Left?.id || null,
-          team1_player2_id: courtPositions.team1Right?.id || null,
-          team2_player1_id: courtPositions.team2Left?.id || null,
-          team2_player2_id: courtPositions.team2Right?.id || null,
-          team1_score: team1Score,
-          team2_score: team2Score,
-          winner: team1Score > team2Score ? 'team1' : 'team2'
-        }])
-        .select()
-        .single();
+      let game;
+      const winner = team1Score > team2Score ? 'team1' : 'team2';
+      const timestamp = Date.now();
 
-      if (gameError) throw gameError;
+      if (user) {
+        // Authenticated: Save to Supabase
+        // For local players, don't save their IDs to Supabase (they don't exist there)
+        const getSupabaseId = (player) => {
+          if (!player) return null;
+          if (player.id?.toString().startsWith('local_')) return null;
+          return player.id;
+        };
 
-      // Create local game object for immediate UI update
-      const game = {
-        id: gameData.id,
-        team1: {
-          player1: courtPositions.team1Left,
-          player2: courtPositions.team1Right,
-          score: team1Score
-        },
-        team2: {
-          player1: courtPositions.team2Left,
-          player2: courtPositions.team2Right,
-          score: team2Score
-        },
-        winner: team1Score > team2Score ? 'team1' : 'team2',
-        date: gameData.played_at,
-        timestamp: new Date(gameData.created_at).getTime()
-      };
+        const { data: gameData, error: gameError } = await supabase
+          .from('games')
+          .insert([{
+            team1_player1_id: getSupabaseId(courtPositions.team1Left),
+            team1_player2_id: getSupabaseId(courtPositions.team1Right),
+            team2_player1_id: getSupabaseId(courtPositions.team2Left),
+            team2_player2_id: getSupabaseId(courtPositions.team2Right),
+            team1_score: team1Score,
+            team2_score: team2Score,
+            winner: winner
+          }])
+          .select()
+          .single();
+
+        if (gameError) throw gameError;
+
+        game = {
+          id: gameData.id,
+          team1: {
+            player1: courtPositions.team1Left,
+            player2: courtPositions.team1Right,
+            score: team1Score
+          },
+          team2: {
+            player1: courtPositions.team2Left,
+            player2: courtPositions.team2Right,
+            score: team2Score
+          },
+          winner: winner,
+          date: gameData.played_at,
+          timestamp: new Date(gameData.created_at).getTime()
+        };
+      } else {
+        // Anonymous: Save to localStorage
+        game = {
+          id: generateLocalId(),
+          team1: {
+            player1: courtPositions.team1Left,
+            player2: courtPositions.team1Right,
+            score: team1Score
+          },
+          team2: {
+            player1: courtPositions.team2Left,
+            player2: courtPositions.team2Right,
+            score: team2Score
+          },
+          winner: winner,
+          date: new Date().toISOString(),
+          timestamp: timestamp,
+          isLocal: true
+        };
+
+        const localGames = getLocalGames();
+        localGames.unshift(game);
+        setLocalGames(localGames);
+      }
 
       const updatedGames = [game, ...games];
       setGames(updatedGames);
@@ -287,6 +475,9 @@ export default function PickleballTracker() {
       // Update player stats
       const updatedPlayers = calculatePlayerStats([...updatedGames]);
       setPlayers(updatedPlayers);
+
+      // Save last court positions for "remember players" feature
+      saveLastCourtPositions(courtPositions);
 
       // Show toast notification
       setShowToast(true);
@@ -405,12 +596,15 @@ export default function PickleballTracker() {
                 </button>
               </>
             ) : (
-              <button
-                onClick={() => setShowLoginModal(true)}
-                className="text-slate-400 hover:text-blue-400 transition-colors flex items-center gap-1 text-sm font-sans"
-              >
-                Sign In
-              </button>
+              <div className="flex items-center gap-3">
+                <span className="text-yellow-400 text-xs font-sans">Playing Offline</span>
+                <button
+                  onClick={() => setShowLoginModal(true)}
+                  className="text-slate-400 hover:text-blue-400 transition-colors flex items-center gap-1 text-sm font-sans"
+                >
+                  Sign In to Sync
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -459,7 +653,7 @@ export default function PickleballTracker() {
         {view === 'court' && (
           <div>
             {/* Pickleball Court */}
-            <div className="max-w-md mx-auto">
+            <div className="max-w-[358px] mx-auto">
               {/* Court Container */}
               <div className="relative bg-white border-[3px] border-white shadow-xl">
                 {/* Court - 44ft length x 20ft width (2.2:1 ratio) */}
@@ -636,7 +830,7 @@ export default function PickleballTracker() {
             </div>
 
             {/* Scores Section */}
-            <div className="mt-1.5 max-w-md mx-auto">
+            <div className="mt-1.5 max-w-[358px] mx-auto">
               <div className="grid grid-cols-2 gap-2">
                 {/* Team 1 Score */}
                 <div className="bg-slate-950 border border-slate-800 p-1.5">
@@ -667,14 +861,14 @@ export default function PickleballTracker() {
               <div className="grid grid-cols-2 gap-2 mt-1.5">
                 <button
                   onClick={saveGame}
-                  className="bg-blue-500 text-white py-1.5 px-2 font-sans text-[10px] tracking-wide font-bold hover:bg-blue-400 transition-colors border border-blue-600 shadow-lg"
+                  className="bg-blue-500 text-white py-3 px-4 font-sans text-[20px] tracking-wide font-bold hover:bg-blue-400 transition-colors border border-blue-600 shadow-lg"
                 >
                   SAVE GAME
                 </button>
 
                 <button
                   onClick={clearCourt}
-                  className="bg-slate-800 text-white py-1.5 px-2 font-sans text-[10px] tracking-wide hover:bg-slate-700 transition-colors border border-slate-700"
+                  className="bg-slate-800 text-white py-3 px-4 font-sans text-[20px] tracking-wide hover:bg-slate-700 transition-colors border border-slate-700"
                 >
                   CLEAR COURT
                 </button>
